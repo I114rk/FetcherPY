@@ -34,7 +34,7 @@
 git clone [https://github.com/i114rk/FetcherPY.git](https://github.com/i114rk/FetcherPY.git)
 cd fetcherpy
 ```
-##Настройка окружения (рекомендуется)
+## Настройка окружения (рекомендуется)
 
 
 ```bash
@@ -43,13 +43,13 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 (Не забудь создать файл requirements.txt с текстом rich и psutil внутри)
-##Запуск
+## Запуск
 ```bash
 python fetcherpy.py
 ```
 
-📄 Лицензия
+## 📄 Лицензия
 
-Этот проект распространяется под лицензией MIT. Подробнее см. в файле. Да ладно ее нету, проект Open Source
+Этот проект распространяется под лицензией ПШЛ я нафиг, reddit.com/r/UnixPorn здеся, проект опен сурс
 
 P.S Даже README мне написал ИИ, кроме этого P.S
