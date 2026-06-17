@@ -1,0 +1,21 @@
+# Maintainer: Твое Имя <твой_email@example.com>
+pkgname=fetcherpy
+pkgver=1.0
+pkgrel=1
+pkgdesc="A beautiful TUI system architecture fetcher written in Python using Rich, Vibe Coding"
+arch=('any')
+url="https://github.com/i114rk/FetcherPY" # Ссылка на исходный код (если есть)
+license=('MIT')
+depends=('python' 'python-psutil' 'python-rich')
+optdepends=(
+    'pacman: for counting native packages'
+    'flatpak: for counting flatpak packages'
+    'wmctrl: for detecting WM name in X11 sessions'
+)
+source=("fetcherpy") # Указываем локальный файл как источник
+sha256sums=('SKIP')  # Для локального тестирования пропускаем проверку хэша
+
+package() {
+    # Создаем папку в системном окружении и копируем туда исполняемый файл
+    install -Dm755 "${srcdir}/fetcherpy" "${pkgdir}/usr/bin/fetcherpy"
+}
