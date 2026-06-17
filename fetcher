@@ -1,0 +1,207 @@
+#!/usr/bin/env python3
+import os
+import platform
+import socket
+from datetime import datetime
+import psutil
+from rich.console import Console
+from rich.columns import Columns
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
+
+# Принудительно включаем поддержку TrueColor (16 млн цветов)
+console = Console(color_system="truecolor")
+
+def get_uptime():
+    boot_time = datetime.fromtimestamp(psutil.boot_time())
+    uptime = datetime.now() - boot_time
+    hours, remainder = divmod(int(uptime.total_seconds()), 3600)
+    minutes, _ = divmod(remainder, 60)
+    return f"{hours}h {minutes}m"
+
+def get_packages():
+    pkgs = []
+    if os.system("command -v pacman > /dev/null 2>&1") == 0:
+        try:
+            count = os.popen("pacman -Q | wc -l").read().strip()
+            pkgs.append(f"{count} (pacman)")
+        except: pass
+    if os.system("command -v flatpak > /dev/null 2>&1") == 0:
+        try:
+            count = os.popen("flatpak list | wc -l").read().strip()
+            if count and count != "0":
+                pkgs.append(f"{count} (flatpak)")
+        except: pass
+    return ", ".join(pkgs) if pkgs else "Unknown"
+
+def get_env_info():
+    shell = os.environ.get("SHELL", "").split("/")[-1] or "Unknown"
+    de = os.environ.get("XDG_CURRENT_DESKTOP") or os.environ.get("DESKTOP_SESSION") or "Unknown"
+    wm = "Unknown"
+    if os.environ.get("XDG_SESSION_TYPE") == "wayland":
+        wm = os.environ.get("XDG_CURRENT_DESKTOP", "Wayland WM")
+    else:
+        if os.system("command -v wmctrl > /dev/null 2>&1") == 0:
+            wm = os.popen("wmctrl -m | grep Name: | awk '{print $2}'").read().strip()
+    return shell, de, wm
+
+def get_terminal_and_colors():
+    term = os.environ.get("TERM_PROGRAM") or os.environ.get("TERM") or "Unknown"
+    
+    colors_blocks = Text()
+    for i in range(8):
+        colors_blocks.append("███", style=f"color({i})")
+    colors_blocks.append("\n")
+    for i in range(8, 16):
+        colors_blocks.append("███", style=f"color({i})")
+        
+    return term, colors_blocks
+
+def fetch_system_info():
+    to_gb = lambda b: b / (1024 ** 3)
+    vm = psutil.virtual_memory()
+    swap = psutil.swap_memory()
+    shell, de, wm = get_env_info()
+    
+    gpus = []
+    if platform.system() == "Linux":
+        try:
+            raw_lspci = os.popen("lspci -v").read().split("\n\n")
+            for block in raw_lspci:
+                if "VGA" in block or "3D" in block:
+                    lines = [line.strip() for line in block.split("\n") if line.strip()]
+                    if not lines: continue
+                    dev_name = lines[0].split(": ", 1)[1] if ":" in lines[0] else lines[0]
+                    sub_name = ""
+                    for l in lines:
+                        if "Subsystem:" in l:
+                            sub_name = l.split("Subsystem:")[1].strip()
+                            break
+                    dev_brackets = dev_name.split("[")[1].split("]")[0].strip() if "[" in dev_name and "]" in dev_name else ""
+                    sub_brackets = sub_name.split("[")[1].split("]")[0].strip() if "[" in sub_name and "]" in sub_name else ""
+                    
+                    if "amd" in dev_name.lower() or "ati" in dev_name.lower():
+                        if sub_brackets and "amd" not in sub_brackets.lower() and "ati" not in sub_brackets.lower():
+                            final_name = f"AMD ATI {sub_brackets}"
+                        elif "renoir" in dev_name.lower() or "vega" in dev_name.lower() or "subsystem" in sub_name.lower():
+                            final_name = "AMD ATI Radeon Vega Series / Radeon Vega Mobile Series"
+                        else: final_name = dev_brackets if dev_brackets else dev_name
+                    else:
+                        final_name = dev_brackets if dev_brackets else dev_name
+                    
+                    final_name = final_name.split("(rev")[0].strip()
+                    final_name = final_name.replace("Corporation", "").replace("Advanced Micro Devices, Inc.", "AMD").replace("  ", " ")
+                    if "nvidia" in block.lower() and "nvidia" not in final_name.lower():
+                        final_name = f"NVIDIA {final_name}"
+                    if "amd" in block.lower() and "amd" not in final_name.lower() and "radeon" not in final_name.lower():
+                        final_name = f"AMD {final_name}"
+                    if final_name and final_name not in gpus:
+                        gpus.append(final_name)
+        except: pass
+
+    gpu_info = "\n".join(gpus) if gpus else "Unknown"
+
+    host_model = "Unknown"
+    if os.path.exists("/sys/devices/virtual/dmi/id/product_name"):
+        with open("/sys/devices/virtual/dmi/id/product_name", "r") as f:
+            host_model = f.read().strip()
+
+    info = {
+        "username": os.getlogin(),
+        "hostname": socket.gethostname(),
+        "os": "Arch Linux" if "arch" in platform.release().lower() else f"{platform.system()}",
+        "kernel": platform.release(),
+        "host": host_model,
+        "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "uptime": get_uptime(),
+        "shell": shell,
+        "de": de,
+        "wm": wm,
+        "cpu": "Unknown CPU",
+        "cpu_cores": f"{psutil.cpu_count(logical=False)} Cores / {psutil.cpu_count(logical=True)} Threads",
+        "gpu": gpu_info,
+        "mem_used": f"{to_gb(vm.used):.2f} GB",
+        "mem_total": f"{to_gb(vm.total):.2f} GB",
+        "mem_free": f"{to_gb(vm.available):.2f} GB",
+        "swap_used": f"{to_gb(swap.used):.2f} GB",
+        "swap_total": f"{to_gb(swap.total):.2f} GB",
+        "packages": get_packages(),
+    }
+    
+    try:
+        info["cpu"] = os.popen("cat /proc/cpuinfo | grep 'model name' | head -n 1 | cut -d: -f2").read().strip()
+    except:
+        info["cpu"] = platform.processor()
+
+    return info
+
+def create_tui():
+    info = fetch_system_info()
+    term_name, term_colors = get_terminal_and_colors()
+    
+    # Используем raw-строку (r""), чтобы обратные слэши не ломали верстку
+    # Полностью пересобранный и выровненный ASCII-арт (Шрифт: Slant)
+    # Исправленный ASCII-арт: теперь точно PY, а не Ph
+    logo_text = (
+        "\n"
+        r"[bold #00ffff]    ______     __       __               [/]" "\n"
+        r"[bold #00ffff]   / ____/__  / /______/ /_  ___  _____  [/]" "\n"
+        r"[bold #3b82f6]  / /_  / _ \/ __/ ___/ __ \/ _ \/ ___/  [/]" "\n"
+        r"[bold #3b82f6] / __/ /  __/ /_/ /__/ / / /  __/ /      [/]" "\n"
+        r"[bold #a855f7]/_/    \___/\__/\___/_/ /_/\___/_/       [/]" "\n"
+        r"[bold #a855f7]    ____  __  __                         [/]" "\n"
+        r"[bold #a855f7]   / __ \/ / / /                         [/]" "\n"
+        r"[bold #a855f7]  / /_/ / /_/ /                          [/]" "\n"
+        r"[bold #a855f7] / ____/\__, /                           [/]" "\n"
+        r"[bold #a855f7]/_/    /____/                       v1.0 [/]" "\n"
+    )
+    logo_panel = Panel(logo_text, border_style="#00ffff", padding=(1, 2), width=46)
+    
+    table = Table(show_header=False, box=None, padding=(0, 1))
+    
+    # Юзернейм и Собачка в жестком Hex-цвете
+    title_text = Text()
+    title_text.append(info['username'], style="bold #22c55e") # Чистый зеленый
+    title_text.append(" @ ", style="bold #ffffff")            # Чистый белый
+    title_text.append(info['hostname'], style="bold #22c55e")
+    
+    table.add_row(title_text)
+    table.add_row("[bold #ffffff]" + "-" * (len(info['username']) + len(info['hostname']) + 3) + "[/]")
+    
+    # Сет параметров с жесткими Hex-кодами цветов
+    stats = [
+        ("OS", info["os"], "#00ffff"),         # Циан
+        ("Host", info["host"], "#00ffff"),
+        ("Kernel", info["kernel"], "#00ffff"),
+        ("Uptime", info["uptime"], "#00ffff"),
+        ("Packages", info["packages"], "#e879f9"),   # Розовый/Маджента
+        ("Shell", info["shell"], "#e879f9"),
+        ("DE/WM", f"{info['de']} / {info['wm']}", "#e879f9"),
+        ("Terminal", term_name, "#e879f9"),
+        ("CPU", f"{info['cpu']}\n({info['cpu_cores']})", "#facc15"), # Желтый
+        ("GPU", info["gpu"], "#facc15"),
+        ("Memory", f"{info['mem_used']} / {info['mem_total']} (Free: {info['mem_free']})", "#4ade80"), # Салатовый
+        ("Swap", f"{info['swap_used']} / {info['swap_total']}", "#4ade80"),
+    ]
+    
+    for label, val, color in stats:
+        table.add_row(f"[bold {color}]{label}:[/]", f"[#ffffff]{val}[/]")
+        
+    table.add_row("", "")
+    table.add_row("", term_colors)
+
+    # Синяя рамка панели и жесткий белый заголовок
+    info_panel = Panel(
+        table, 
+        border_style="#3b82f6", 
+        title="[bold #ffffff] System Info [/]", 
+        title_align="left", 
+        expand=False
+    )
+    
+    columns = Columns([logo_panel, info_panel])
+    console.print(columns)
+
+if __name__ == "__main__":
+    create_tui()
